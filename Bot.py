@@ -6,7 +6,6 @@ import re
 import g4f
 from g4f import Provider
 
-
 from Config import telegram_token, access_token
 
 bot = telebot.TeleBot(telegram_token)
