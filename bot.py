@@ -3,10 +3,12 @@ import vk_api
 import time
 import threading
 import re
-import g4f
-from g4f import Provider
+from preprocessing import preprocessing_post
+import subprocess
+import asyncio
 
-from Config import telegram_token, access_token
+from config import telegram_token, access_token
+from preprocessing.translator import translate_to_english
 
 bot = telebot.TeleBot(telegram_token)
 users_in_process = {}
@@ -43,6 +45,26 @@ def get_user_data(user_id, token):
             return None
 
 
+def get_user_posts(user_id, token):
+    vk_session = vk_api.VkApi(token=token)
+    try:
+        posts = vk_session.method('wall.get', {'owner_id': user_id, 'count': 200})
+        if posts and 'items' in posts:
+            return [post['text'] for post in posts['items'] if 'text' in post]
+        else:
+            print("Нет постов у пользователя.")
+            return []
+    except vk_api.exceptions.ApiError as e:
+        print(f"Ошибка при получении постов пользователя: {e}")
+        return []
+
+
+def process_posts(posts):
+    preprocessed_posts = [preprocessing_post.lemmatize(post) for post in posts if preprocessing_post.lemmatize(post)]
+    translated_posts = [translate_to_english(post) for post in preprocessed_posts]
+    return translated_posts
+
+
 def user_get(message, user_id):
     wait_message = bot.send_message(message.chat.id,
                                     "Анализ может занять несколько минут. Пожалуйста, подождите.")
@@ -63,26 +85,40 @@ def user_get(message, user_id):
 
     groups_data = get_user_groups(user_data['id'], access_token)
 
-    if groups_data:
-        groups_list = [f"{group['activity']}" for group in groups_data]
-        with open('prompt.txt', 'r', encoding='utf-8') as file:
-            prompt_text = file.read()
-        gpt_input_text = prompt_text.format(groups_list=groups_list)
-        try:
-            response = g4f.ChatCompletion.create(
-                model=g4f.models.default,
-                provider=g4f.Provider.Liaobots,
-                messages=[{"role": "user", "content": gpt_input_text}],
-                stream=False,
-            )
+    async def send_messages(chat_id, user_name, full_response, personality_predictions):
+        message_text = (
+            f"Анализ профиля пользователя {' '.join(user_name)}\n"
+            f"Характеристики личности:\n{personality_predictions}"
+        )
+        bot.send_message(chat_id, message_text)
 
-            full_response = ''
-            for msg in response:
-                full_response += msg
-            bot.delete_message(message.chat.id, wait_message.message_id)
-            bot.send_message(message.chat.id, f"Анализ профиля пользователя {' '.join(user_name)}\n{full_response}")
+    async def run_predict():
+        try:
+            process = await asyncio.create_subprocess_exec('python', 'predict/predict.py', stdout=subprocess.PIPE,
+                                                           stderr=subprocess.PIPE)
+            stdout, stderr = await process.communicate()
+            return stdout.decode()
         except Exception as e:
-            bot.send_message(message.chat.id, f"Error: {e}")
+            return f"Ошибка при запуске predict.py: {e}"
+
+    async def main(message, user_id, user_name, full_response):
+        personality_predictions = await run_predict()
+        bot.delete_message(message.chat.id, wait_message.message_id)
+        await send_messages(message.chat.id, user_name, full_response, personality_predictions)
+
+    posts = get_user_posts(user_id, access_token)
+    if posts:
+        processed_posts = process_posts(posts)
+        with open('predict/processed_posts.txt', 'w', encoding='utf-8') as f:
+            for post in processed_posts:
+                f.write(post + '\n')
+        # Запуск асинхронной функции main
+        if groups_data:
+            full_response = ''
+            asyncio.run(main(message, user_id, user_name, full_response))
+    else:
+        bot.delete_message(message.chat.id, wait_message.message_id)
+        bot.send_message(message.chat.id, f"Недостаточно информации для анализа")
 
 
 @bot.message_handler(commands=['start'])
