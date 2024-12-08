@@ -1,3 +1,9 @@
 Config.py
 __pycache__
 .idea/
+models
+predict/processed_posts.txt
+config.py
+preprocessing/preprocessing_data.py
+preprocessing/essay.py
+analysis_models

@@ -6,9 +6,14 @@ import re
 from preprocessing import preprocessing_post
 import subprocess
 import asyncio
-
-from config import telegram_token, access_token
 from preprocessing.translator import translate_to_english
+import os
+
+telegram_token = os.environ.get("TELEGRAM_TOKEN")
+access_token = os.environ.get("ACCESS_TOKEN")
+
+if not telegram_token or not access_token:
+    raise EnvironmentError("TELEGRAM_TOKEN or ACCESS_TOKEN not set in environment variables")
 
 bot = telebot.TeleBot(telegram_token)
 users_in_process = {}
