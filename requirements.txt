@@ -4,3 +4,4 @@ numpy==1.26.4
 pymorphy2==0.8
 telebot==0.0.5
 vk_api==11.9.9
+scikit_learn==1.4.2
